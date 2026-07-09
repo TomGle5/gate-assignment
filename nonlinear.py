@@ -1,10 +1,16 @@
 from gurobipy import *
+import numpy as np
 import random
 import itertools
+import plotly.express as px
 
 random.seed(42)
 n_aircraft = 20
+n_gates = 4
 aircraft = list(range(1, n_aircraft + 1))
+#G = list(range(0, n_gates + 1))
+
+#G_i = {i: G for i in A}
 
 # Schedules
 arrival = {i: random.randint(0, 200) for i in aircraft}
@@ -78,7 +84,6 @@ for idx, i in enumerate(A_sorted):
 
 # Build model
 model = Model('GAP')
-#model.setParam('MIPFocus', 1)
 # model.setParam('Threads', 2)
 # model.setParam('Heuristics', 1)
 # model.setParam('Cuts', 3)
@@ -93,44 +98,14 @@ for i in aircraft:
 # (3) time-incompatible aircraft cannot share a physical gate (apron excluded)
 for i in aircraft:
     for j in A_inc[i]:
-        # common_gates = (set(G_i[i]) & set(G_i[j])) - {0}
-        common_gates = (set(G_i[i]) & set(G_i[j])) 
+        common_gates = (set(G_i[i]) & set(G_i[j])) - {0}
         for g in common_gates:
             model.addConstr(x[i, g] + x[j, g] <= 1, name=f"incompat_{i}_{j}_{g}")
 
-# # (4)-(6) linearization variables for transfer-passenger term
-# y = {}
-# for i, j in itertools.combinations(aircraft, 2):
-#     for g1 in G_i[i]:
-#         for g2 in G_i[j]:
-#             y[i, g1, j, g2] = model.addVar(vtype=GRB.BINARY, name=f"y_{i}_{g1}_{j}_{g2}")
-#             model.addConstr(y[i, g1, j, g2] >= x[i, g1] + x[j, g2] - 1)
-#             model.addConstr(y[i, g1, j, g2] <= x[i, g1])
-#             model.addConstr(y[i, g1, j, g2] <= x[j, g2])
+
 # Only iterate over pairs with actual transfer flow
 transfer_pairs = [(i, j) for i, j in itertools.combinations(aircraft, 2)
                   if Pij.get((i,j), 0) + Pij.get((j,i), 0) > 0]
-
-y = {}
-for i, j in transfer_pairs:
-    for g1 in G_i[i]:
-        for g2 in G_i[j]:
-            y[i, g1, j, g2] = model.addVar(vtype=GRB.BINARY, name=f"y_{i}_{g1}_{j}_{g2}")
-            model.addConstr(y[i, g1, j, g2] >= x[i, g1] + x[j, g2] - 1)
-            model.addConstr(y[i, g1, j, g2] <= x[i, g1])
-            model.addConstr(y[i, g1, j, g2] <= x[j, g2])
-
-for i, j in transfer_pairs:
-    for g1 in G_i[i]:
-        model.addConstr(
-            quicksum(y[i, g1, j, g2] for g2 in G_i[j]) == x[i, g1],
-            name=f"agg1_{i}_{g1}_{j}"
-        )
-    for g2 in G_i[j]:
-        model.addConstr(
-            quicksum(y[i, g1, j, g2] for g1 in G_i[i]) == x[j, g2],
-            name=f"agg2_{i}_{j}_{g2}"
-        )
 
 
 # ----------------------------------------------------------------------
@@ -139,10 +114,11 @@ for i, j in transfer_pairs:
 outbound = quicksum(P0i[i] * D0g[g] * x[i, g] for i in aircraft for g in G_i[i])
 inbound = quicksum(Pi0[i] * Dg0[g] * x[i, g] for i in aircraft for g in G_i[i])
 transfer = quicksum(
-    (Pij.get((i, j), 0) + Pij.get((j, i), 0)) * Dgg[g1, g2] * y[i, g1, j, g2]
+    (Pij.get((i, j), 0) + Pij.get((j, i), 0)) * Dgg[g1, g2] * x[i, g1] * x[j, g2]
     for i, j in itertools.combinations(aircraft, 2)
     for g1 in G_i[i] for g2 in G_i[j]
 )
+
 
 model.setObjective(outbound + inbound + transfer, GRB.MINIMIZE)
 
