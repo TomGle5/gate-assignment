@@ -3,11 +3,12 @@ import random
 import itertools
 
 random.seed(42)
-n_aircraft = 20
+n_gates = 24
+n_aircraft = 10
 aircraft = list(range(1, n_aircraft + 1))
 
 # Schedules
-arrival = {i: random.randint(0, 200) for i in aircraft}
+arrival = {i: random.randint(0, 100) for i in aircraft}
 turnaround = {i: random.randint(20, 40) for i in aircraft}
 departure = {i: arrival[i] + turnaround[i] for i in aircraft}
 aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
