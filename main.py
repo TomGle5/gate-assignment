@@ -1,14 +1,15 @@
 from gurobipy import *
 import random
 import itertools
+from DistanceMatrix import dist
 
 random.seed(42)
 n_gates = 24
-n_aircraft = 10
+n_aircraft = 40
 aircraft = list(range(1, n_aircraft + 1))
 
 # Schedules
-arrival = {i: random.randint(0, 100) for i in aircraft}
+arrival = {i: random.randint(0, 120) for i in aircraft}
 turnaround = {i: random.randint(20, 40) for i in aircraft}
 departure = {i: arrival[i] + turnaround[i] for i in aircraft}
 aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
@@ -27,27 +28,35 @@ aircraft, arrival, turnaround, departure, aircraft_size, aircraft_zone = multidi
 
 # (start, end, size, zone) - end inclusive
 gate_ranges = [
-    (1, 4,  'wide',   'non-schengen'),
-    (5, 8,  'narrow', 'non-schengen'),
-    (9, 16, 'narrow', 'schengen'),
-    (17, 20, 'wide',  'schengen'),
-    (21, 24, 'wide', 'remote')
+    (1, 5,  'wide',   'non-schengen'),
+    (6, 10,  'narrow', 'non-schengen'),
+    (11, 15, 'narrow', 'schengen'),
+    (16, 17, 'wide',  'schengen'),
+    (18, 22, 'narrow', 'schengen')
+#    ('R', 'R', 'wide', 'remote')
 ]
 
 gate_data = {
-    f'G{i}': (zone, size)
+    i: (zone, size)
     for start, end, size, zone in gate_ranges
     for i in range(start, end + 1)
 }
 
+gate_data['R'] = ('remote', 'wide')
+
+
 gates, gate_zone, gate_size = multidict(gate_data)
 
-# Temporary walking distances
-D0g = {g: random.randint(300, 500) if g == 0 else random.randint(50, 300) for g in gates}
-Dg0 = {g: random.randint(300, 500) if g == 0 else random.randint(50, 300) for g in gates}
-Dgg = {(g1, g2): 0 if g1 == g2
-       else (random.randint(300, 500) if (g1 == 0 or g2 == 0) else random.randint(50, 300))
-       for g1 in gates for g2 in gates}
+# # Temporary walking distances
+# D0g = {g: random.randint(300, 500) if g == 0 else random.randint(50, 300) for g in gates}
+# Dg0 = {g: random.randint(300, 500) if g == 0 else random.randint(50, 300) for g in gates}
+# Dgg = {(g1, g2): 0 if g1 == g2
+#        else (random.randint(300, 500) if (g1 == 0 or g2 == 0) else random.randint(50, 300))
+#        for g1 in gates for g2 in gates}
+
+D0g = {g: dist["E"][g] for g in gates}
+Dg0 = {g: dist[g]["E"] for g in gates}
+Dgg = {(g1, g2): dist[g1][g2] for g1 in gates for g2 in gates}
 
 # Pax flows
 P0i = {i: random.randint(50, 200) for i in aircraft}                    # check-in -> i
@@ -79,11 +88,6 @@ for idx, i in enumerate(A_sorted):
 
 # Build model
 model = Model('GAP')
-#model.setParam('MIPFocus', 1)
-# model.setParam('Threads', 2)
-# model.setParam('Heuristics', 1)
-# model.setParam('Cuts', 3)
-# model.setParam('Presolve', 2)
 
 x = model.addVars(aircraft, gates, vtype=GRB.BINARY, name='x')
 
@@ -94,8 +98,8 @@ for i in aircraft:
 # (3) time-incompatible aircraft cannot share a physical gate (apron excluded)
 for i in aircraft:
     for j in A_inc[i]:
-        # common_gates = (set(G_i[i]) & set(G_i[j])) - {0}
-        common_gates = (set(G_i[i]) & set(G_i[j])) 
+        common_gates = (set(G_i[i]) & set(G_i[j])) - {"R"}
+#        common_gates = (set(G_i[i]) & set(G_i[j])) 
         for g in common_gates:
             model.addConstr(x[i, g] + x[j, g] <= 1, name=f"incompat_{i}_{j}_{g}")
 
@@ -160,7 +164,7 @@ print("\nGate assignments:")
 for i in aircraft:
     for g in gates:
         if x[i, g].X > 0.5:
-            label = "APRON" if g == 0 else f"Gate {g}"
+            label = "APRON" if g == "R" else f"Gate {g}"
             print(f"  Aircraft {i} -> {label}")
 
 print(f"\nTotal objective (passenger walking distance): {model.ObjVal:.1f}")
@@ -174,13 +178,13 @@ def plot_gantt(A, G, x, arrival, departure, n_gates):
     # Colour per gate (apron gets grey)
     colours = plt.cm.tab20.colors
     #gate_colours = {g: 'lightgrey' if g == 0 else colours[g % len(colours)] for g in G}
-    gate_colours = {g: 'lightgrey' if g == 0 else colours[idx % len(colours)] 
+    gate_colours = {g: 'lightgrey' if g == "R" else colours[idx % len(colours)] 
                 for idx, g in enumerate(G)}
     # Draw a bar for each aircraft assignment
     for i in A:
         for g in G:
             if x[i, g].X > 0.5:
-                label = "Apron" if g == 0 else f"Gate {g}"
+                label = "Apron" if g == "R" else f"Gate {g}"
                 ax.barh(
                     y=label,
                     width=departure[i] - arrival[i],
