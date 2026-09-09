@@ -2,6 +2,7 @@ from gurobipy import *
 import random
 import itertools
 from DistanceMatrix import dist
+import math
 
 random.seed(42)
 n_gates = 24
@@ -58,10 +59,45 @@ D0g = {g: dist["E"][g] for g in gates}
 Dg0 = {g: dist[g]["E"] for g in gates}
 Dgg = {(g1, g2): dist[g1][g2] for g1 in gates for g2 in gates}
 
-# Pax flows
-P0i = {i: random.randint(50, 200) for i in aircraft}                    # check-in -> i
-Pi0 = {i: random.randint(50, 200) for i in aircraft}                    # i -> luggage
-Pij = {(i, j): random.randint(0, 50) for i in aircraft for j in aircraft if i != j}  # i -> j transfers
+# # Pax flows
+# P0i = {i: random.randint(50, 200) for i in aircraft}                    # check-in -> i
+# Pi0 = {i: random.randint(50, 200) for i in aircraft}                    # i -> luggage
+# Pij = {(i, j): random.randint(0, 50) for i in aircraft for j in aircraft if i != j}  # i -> j transfers
+
+# Passenger flows
+P_arr = {}
+cnx_pct = {}
+cnx_pax_arr = {}
+Pi0 = {}
+for i in aircraft:
+    if aircraft_size[i] == ['wide']:
+        P_arr[i] = random.randint(100, 300)
+        cnx_pct[i] = random.randint(40, 80)/100
+        cnx_pax_arr[i] = math.floor(P_arr[i] * cnx_pct[i])
+        Pi0[i] = P_arr[i] - cnx_pax_arr[i]
+    elif aircraft_size[i] == ['narrow']:
+        P_arr[i] = random.randint(50, 180)
+        cnx_pct[i] = random.randint(20, 70)/100
+        cnx_pax_arr[i] = math.floor(P_arr[i] * cnx_pct[i])
+        Pi0[i] = P_arr[i] - cnx_pax_arr[i]
+Pij = {(i, j): 0 for i in aircraft for j in aircraft}
+
+for i in aircraft:
+    for _ in range(cnx_pax_arr[i]):
+        j = random.choice(aircraft)
+        Pij[(i, j)] += 1
+
+connecting_arrivals = {
+    j: sum(Pij[(i, j)] for i in aircraft)
+    for j in aircraft
+}
+
+P0i = {}
+for i in aircraft:
+    if aircraft_size[i] == ['wide']:
+        P0i[i] = random.randint(100, 300 - connecting_arrivals[i])
+    elif aircraft_size[i] == ['narrow']:
+        P0i[i] = random.randint(50, 180 - connecting_arrivals[i])
 
 # Create G_i
 G_i = {i: [] for i in aircraft}
@@ -145,7 +181,7 @@ outbound = quicksum(P0i[i] * D0g[g] * x[i, g] for i in aircraft for g in G_i[i])
 inbound = quicksum(Pi0[i] * Dg0[g] * x[i, g] for i in aircraft for g in G_i[i])
 transfer = quicksum(
     (Pij.get((i, j), 0) + Pij.get((j, i), 0)) * Dgg[g1, g2] * y[i, g1, j, g2]
-    for i, j in itertools.combinations(aircraft, 2)
+    for i, j in transfer_pairs
     for g1 in G_i[i] for g2 in G_i[j]
 )
 
