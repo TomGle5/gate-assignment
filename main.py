@@ -11,7 +11,7 @@ aircraft = list(range(1, n_aircraft + 1))
 
 # Schedules
 arrival = {i: random.randint(0, 120) for i in aircraft}
-turnaround = {i: random.randint(20, 40) for i in aircraft}
+turnaround = {i: random.randint(30, 60) for i in aircraft}
 departure = {i: arrival[i] + turnaround[i] for i in aircraft}
 aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
 aircraft_zone = {i: random.choice(('schengen', 'non-schengen')) for i in aircraft}
@@ -216,16 +216,23 @@ def plot_gantt(A, G, x, arrival, departure, n_gates):
     #gate_colours = {g: 'lightgrey' if g == 0 else colours[g % len(colours)] for g in G}
     gate_colours = {g: 'lightgrey' if g == "R" else colours[idx % len(colours)] 
                 for idx, g in enumerate(G)}
+    ac_colours = {('wide', 'non-schengen'): 'blue',
+                  ('narrow', 'non-schengen'): 'red',
+                  ('wide', 'schengen'): 'orange',
+                  ('narrow', 'schengen'): 'green'}
+    #ac_cat_tuple = (aircraft_size[i][0], aircraft_zone[i] for i in aircraft)
     # Draw a bar for each aircraft assignment
-    for i in A:
-        for g in G:
+    
+    for g in G:
+        for i in A:
+            ac_cat_tuple = (aircraft_size[i][0], aircraft_zone[i])
             if x[i, g].X > 0.5:
                 label = "Apron" if g == "R" else f"Gate {g}"
                 ax.barh(
                     y=label,
                     width=departure[i] - arrival[i],
                     left=arrival[i],
-                    color=gate_colours[g],
+                    color=ac_colours[ac_cat_tuple],
                     edgecolor='black',
                     linewidth=0.8,
                     alpha=0.85
@@ -251,4 +258,7 @@ def plot_gantt(A, G, x, arrival, departure, n_gates):
     plt.show()
 
 # Call after model.optimize()
-plot_gantt(aircraft, gates, x, arrival, departure, n_gates)           
+plot_gantt(aircraft, gates, x, arrival, departure, n_gates)   
+
+for i in aircraft:
+    print(i, aircraft_size[i], aircraft_zone[i])
