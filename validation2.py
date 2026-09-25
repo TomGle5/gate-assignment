@@ -1,30 +1,30 @@
 from gurobipy import *
 import random
 import itertools
-from DistanceMatrix import dist
+from distancematrixvalidation import dist
 import math
 
-#random.seed(42)
-n_aircraft = 50
+random.seed(42)
+n_aircraft = 3
 aircraft = list(range(1, n_aircraft + 1))
-
-# SCHEDULES ======================================================================================
-# Schedules (wave/bank structure)
-# arrival = {i: random.randint(0, 90) for i in aircraft}
-# turnaround = {i: random.randint(40, 60) for i in aircraft}
-# departure = {i: random.randint(max((arrival[i] + turnaround[i]), 90), 180) for i in aircraft}
+print(aircraft)
+# # Schedules
+# arrival = {i: random.randint(0, 30) for i in aircraft}
+# turnaround = {i: random.randint(30, 60) for i in aircraft}
+# departure = {i: arrival[i] + turnaround[i] for i in aircraft}
 # aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
 # aircraft_zone = {i: random.choice(('schengen', 'non-schengen')) for i in aircraft}
-# # Schedules (random) ===========================================================================
-arrival = {i: random.randint(0, 60) for i in aircraft}
-turnaround = {i: random.randint(30, 60) for i in aircraft}
-departure = {i: arrival[i] + turnaround[i] for i in aircraft}
-aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
-aircraft_zone = {i: random.choice(('schengen', 'non-schengen')) for i in aircraft}
+
+arrival = {1: 0, 2: 0, 3: 0}
+turnaround = {1: 30, 2: 30, 3: 30}
+departure = {1: 30, 2: 30, 3: 30}
+aircraft_size = {1: ['narrow'], 2: ['narrow'], 3: ['narrow']}
+aircraft_zone = {1: 'schengen', 2: 'schengen', 3: 'schengen'}
 remaining_capacity = {
     i: 300 if aircraft_size[i] == ['wide'] else 180
     for i in aircraft
 }
+
 
 aircraft, arrival, turnaround, departure, aircraft_size, aircraft_zone, remaining_capacity = multidict({
     i: [
@@ -39,22 +39,26 @@ aircraft, arrival, turnaround, departure, aircraft_size, aircraft_zone, remainin
 })
 
 # (start, end, size, zone) - end inclusive
-gate_ranges = [
-    (1, 5,  'wide',   'non-schengen'),
-    (6, 10,  'narrow', 'non-schengen'),
-    (11, 15, 'narrow', 'schengen'),
-    (16, 17, 'wide',  'schengen'),
-    (18, 22, 'narrow', 'schengen')
-#    ('R', 'R', 'wide', 'remote')
-]
+# gate_ranges = [
+#     (1, 5,  'wide',   'non-schengen'),
+#     (6, 10,  'narrow', 'non-schengen'),
+#     (11, 15, 'narrow', 'schengen'),
+#     (16, 17, 'wide',  'schengen'),
+#     (18, 22, 'narrow', 'schengen')
+# #    ('R', 'R', 'wide', 'remote')
+# ]
 
-gate_data = {
-    i: (zone, size)
-    for start, end, size, zone in gate_ranges
-    for i in range(start, end + 1)
-}
+# gate_data = {
+#     i: (zone, size)
+#     for start, end, size, zone in gate_ranges
+#     for i in range(start, end + 1)
+# }
 
-gate_data['R'] = ('remote', 'wide')
+gate_data = {1: ('non-schengen', 'wide'),
+                2: ('non-schengen', 'narrow'),
+                3: ('schengen', 'narrow'),
+                4: ('schengen', 'wide'),
+                'R': ('remote', 'wide')}
 
 
 gates, gate_zone, gate_size = multidict(gate_data)
@@ -76,7 +80,7 @@ Dgg = {(g1, g2): dist[g1][g2] for g1 in gates for g2 in gates}
 # Pij = {(i, j): random.randint(0, 50) for i in aircraft for j in aircraft if i != j}  # i -> j transfers
 
 # Passenger flows
-mct = 40
+mct = 29
 P_arr = {}
 cnx_pct_plan = {}
 cnx_pax_arr_plan = {}
@@ -90,17 +94,22 @@ valid_connections = {
     for i in aircraft
 }
 
-for i in aircraft:
-    if aircraft_size[i] == ['wide']:
-        P_arr[i] = random.randint(100, 300)
-        cnx_pct_plan[i] = random.randint(40, 80)/100
-        cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
-        Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
-    elif aircraft_size[i] == ['narrow']:
-        P_arr[i] = random.randint(50, 180)
-        cnx_pct_plan[i] = random.randint(20, 70)/100
-        cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
-        Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
+# for i in aircraft:
+#     if aircraft_size[i] == ['wide']:
+#         P_arr[i] = random.randint(100, 300)
+#         cnx_pct_plan[i] = random.randint(40, 80)/100
+#         cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
+#         Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
+#     elif aircraft_size[i] == ['narrow']:
+#         P_arr[i] = random.randint(50, 180)
+#         cnx_pct_plan[i] = random.randint(20, 70)/100
+#         cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
+#         Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
+P_arr = {1: 180, 2: 180, 3: 180}
+cnx_pct_plan = {1: 1, 2: 1, 3: 1}
+cnx_pax_arr_plan = {1: 180, 2: 180, 3: 180}
+Pi0 = {1: 0, 2: 0, 3: 0}
+
 
 Pij = {(i, j): 0 for i in aircraft for j in aircraft}
 
@@ -120,7 +129,6 @@ for i in A_sorted:
         remaining_capacity[j] -= 1
         candidates = [c for c in candidates if remaining_capacity[c] > min_origin(c)]
 
-
 # for i in aircraft:
 #     for _ in range(cnx_pax_arr[i]):
 #         j = random.choice(aircraft)
@@ -129,7 +137,7 @@ for i in A_sorted:
 cnx_pax_dep = {  # total pax per dep ac who have cnx'd from another flt
     j: sum(Pij[(i, j)] for i in aircraft)
     for j in aircraft
-}
+} 
 
 cnx_pax_arr_actual = {  # total pax per arr ac who cnx to another flt
     i: sum(Pij[(i, j)] for j in aircraft)
@@ -138,14 +146,18 @@ cnx_pax_arr_actual = {  # total pax per arr ac who cnx to another flt
 
 cnx_pct_actual = {i: cnx_pax_arr_actual[i]/P_arr[i] for i in aircraft}
 
+print(Pij)
+
+for i in aircraft:
+    for j in aircraft:
+        print(i, j, Pij[(i,j)])
+
 P0i = {}
 for i in aircraft:
     if aircraft_size[i] == ['wide']:
         P0i[i] = random.randint(100, 300 - cnx_pax_dep[i])
     elif aircraft_size[i] == ['narrow']:
         P0i[i] = random.randint(50, 180 - cnx_pax_dep[i])
-
-
 
 # Create G_i
 G_i = {i: [] for i in aircraft}
@@ -163,7 +175,7 @@ for i in aircraft:
 #     print(i, aircraft_size[i], aircraft_zone[i], G_i[i])
 
 # A_inc time incompatibility sets
-
+A_sorted = sorted(aircraft, key=lambda i: arrival[i])
 A_inc = {i: [] for i in aircraft}
 for idx, i in enumerate(A_sorted):
     for j in A_sorted[:idx]:
@@ -256,170 +268,67 @@ print(f"\nTotal objective (passenger walking distance): {model.ObjVal:.1f}")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-# def plot_gantt(A, G, x, arrival, departure):
-#     fig, ax = plt.subplots(figsize=(12, 6))
-    
-#     # Colour per gate (apron gets grey)
-#     colours = plt.cm.tab20.colors
-#     #gate_colours = {g: 'lightgrey' if g == 0 else colours[g % len(colours)] for g in G}
-#     gate_colours = {g: 'lightgrey' if g == "R" else colours[idx % len(colours)] 
-#                 for idx, g in enumerate(G)}
-#     ac_colours = {('wide', 'non-schengen'): 'blue',
-#                   ('narrow', 'non-schengen'): 'red',
-#                   ('wide', 'schengen'): 'orange',
-#                   ('narrow', 'schengen'): 'green'}
-#     #ac_cat_tuple = (aircraft_size[i][0], aircraft_zone[i] for i in aircraft)
-#     # Draw a bar for each aircraft assignment
-    
-#     for g in G:
-#         for i in A:
-#             ac_cat_tuple = (aircraft_size[i][0], aircraft_zone[i])
-#             if x[i, g].X > 0.5:
-#                 label = "Apron" if g == "R" else f"Gate {g}"
-#                 ax.barh(
-#                     y=label,
-#                     width=departure[i] - arrival[i],
-#                     left=arrival[i],
-#                     color=ac_colours[ac_cat_tuple],
-#                     edgecolor='black',
-#                     linewidth=0.8,
-#                     alpha=0.85
-#                 )
-#                 # Label each bar with the aircraft number
-#                 mid = arrival[i] + (departure[i] - arrival[i]) / 2
-#                 ax.text(
-#                     mid,
-#                     label,
-#                     f"AC{i}",
-#                     ha='center',
-#                     va='center',
-#                     fontsize=8,
-#                     fontweight='bold'
-#                 )
-    
-#     ax.set_xlabel("Time (minutes)")
-#     ax.set_title("Gate Assignment Gantt Chart")
-#     ax.set_xlim(0, max(departure.values()) + 10)
-#     ax.grid(axis='x', linestyle='--', alpha=0.5)
-#     legend_labels = {
-#     ('wide', 'non-schengen'): 'Wide-body, Non-Schengen',
-#     ('narrow', 'non-schengen'): 'Narrow-body, Non-Schengen',
-#     ('wide', 'schengen'): 'Wide-body, Schengen',
-#     ('narrow', 'schengen'): 'Narrow-body, Schengen'}
-#     legend_handles = [
-#         Patch(facecolor=color, edgecolor='black', label=legend_labels[cat])
-#         for cat, color in ac_colours.items()
-#     ]
-
-#     ax.legend(handles=legend_handles, title="Aircraft Category", loc='upper right', bbox_to_anchor=(1.15, 1))
-#     plt.tight_layout()
-#     #plt.savefig("gantt.png", dpi=150)
-#     plt.show()
 def plot_gantt(A, G, x, arrival, departure):
-    fig, ax = plt.subplots(figsize=(14, 6))
-
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Colour per gate (apron gets grey)
     colours = plt.cm.tab20.colors
-    gate_colours = {g: 'lightgrey' if g == "R" else colours[idx % len(colours)]
-                     for idx, g in enumerate(G)}
+    #gate_colours = {g: 'lightgrey' if g == 0 else colours[g % len(colours)] for g in G}
+    gate_colours = {g: 'lightgrey' if g == "R" else colours[idx % len(colours)] 
+                for idx, g in enumerate(G)}
     ac_colours = {('wide', 'non-schengen'): 'blue',
                   ('narrow', 'non-schengen'): 'red',
                   ('wide', 'schengen'): 'orange',
                   ('narrow', 'schengen'): 'green'}
-
-    # --- Step 1: figure out how many sub-rows the apron needs ---
-    apron_aircraft = sorted(
-        [i for i in A if x[i, "R"].X > 0.5],
-        key=lambda i: arrival[i]
-    )
-
-    apron_row_end = []  # tracks the departure time currently occupying each apron row
-    apron_row_of = {}   # aircraft -> row index (0, 1, 2, ...)
-
-    for i in apron_aircraft:
-        placed = False
-        for row_idx, end_time in enumerate(apron_row_end):
-            if arrival[i] >= end_time:
-                apron_row_end[row_idx] = departure[i]
-                apron_row_of[i] = row_idx
-                placed = True
-                break
-        if not placed:
-            apron_row_end.append(departure[i])
-            apron_row_of[i] = len(apron_row_end) - 1
-
-    n_apron_rows = len(apron_row_end)
-
-    # --- Step 2: build y-axis labels/order: apron sub-rows first, then gates ---
-    apron_labels = [f"Apron {r+1}" for r in range(n_apron_rows)] if n_apron_rows else ["Apron"]
-    gate_labels = [f"Gate {g}" for g in G if g != "R"]
-    y_order = apron_labels + gate_labels
-    ax.set_yticks(range(len(y_order)))
-    ax.set_yticklabels(y_order)
-    y_pos = {label: pos for pos, label in enumerate(y_order)}
-
-    # --- Step 3: draw bars ---
+    #ac_cat_tuple = (aircraft_size[i][0], aircraft_zone[i] for i in aircraft)
+    # Draw a bar for each aircraft assignment
+    
     for g in G:
         for i in A:
-            if x[i, g].X <= 0.5:
-                continue
             ac_cat_tuple = (aircraft_size[i][0], aircraft_zone[i])
-
-            if g == "R":
-                label = f"Apron {apron_row_of[i] + 1}"
-            else:
-                label = f"Gate {g}"
-
-            width = departure[i] - arrival[i]
-            ax.barh(
-                y=y_pos[label],
-                width=width,
-                left=arrival[i],
-                color=ac_colours[ac_cat_tuple],
-                edgecolor='black',
-                linewidth=0.8,
-                alpha=0.85
-            )
-
-            mid = arrival[i] + width / 2
-            # only draw label if bar is wide enough to fit text legibly
-            if width > (max(departure.values()) * 0.015):
-                ax.text(
-                    mid, y_pos[label], f"AC{i}",
-                    ha='center', va='center',
-                    fontsize=7, fontweight='bold', color='white'
+            if x[i, g].X > 0.5:
+                label = "Apron" if g == "R" else f"Gate {g}"
+                ax.barh(
+                    y=label,
+                    width=departure[i] - arrival[i],
+                    left=arrival[i],
+                    color=ac_colours[ac_cat_tuple],
+                    edgecolor='black',
+                    linewidth=0.8,
+                    alpha=0.85
                 )
-
+                # Label each bar with the aircraft number
+                mid = arrival[i] + (departure[i] - arrival[i]) / 2
+                ax.text(
+                    mid,
+                    label,
+                    f"AC{i}",
+                    ha='center',
+                    va='center',
+                    fontsize=8,
+                    fontweight='bold'
+                )
+    
     ax.set_xlabel("Time (minutes)")
     ax.set_title("Gate Assignment Gantt Chart")
     ax.set_xlim(0, max(departure.values()) + 10)
     ax.grid(axis='x', linestyle='--', alpha=0.5)
-
-    from matplotlib.patches import Patch
     legend_labels = {
-        ('wide', 'non-schengen'): 'Wide-body, Non-Schengen',
-        ('narrow', 'non-schengen'): 'Narrow-body, Non-Schengen',
-        ('wide', 'schengen'): 'Wide-body, Schengen',
-        ('narrow', 'schengen'): 'Narrow-body, Schengen',
-    }
+    ('wide', 'non-schengen'): 'Wide-body, Non-Schengen',
+    ('narrow', 'non-schengen'): 'Narrow-body, Non-Schengen',
+    ('wide', 'schengen'): 'Wide-body, Schengen',
+    ('narrow', 'schengen'): 'Narrow-body, Schengen'}
     legend_handles = [
         Patch(facecolor=color, edgecolor='black', label=legend_labels[cat])
         for cat, color in ac_colours.items()
     ]
-    ax.legend(handles=legend_handles, title="Aircraft Category",
-              loc='upper left', bbox_to_anchor=(1.01, 1))
 
-    plt.tight_layout(rect=[0, 0, 0.85, 1])
+    ax.legend(handles=legend_handles, title="Aircraft Category", loc='upper right', bbox_to_anchor=(1.15, 1))
+    plt.tight_layout()
+    #plt.savefig("gantt.png", dpi=150)
     plt.show()
 
-# Call after model.optimize()
-plot_gantt(aircraft, gates, x, arrival, departure)   
-
-for i in aircraft:
-    print(i, aircraft_size[i], aircraft_zone[i])
-
-for i in aircraft:
-    for j in aircraft:
-        print(i, j, Pij[(i,j)])
+print(cnx_pax_dep)
 
 print(f"{'i':<3} {'Size':<10} {'Zone':<10} {'Arrival':<10} {'Turnaround':<10} {'Departure':<10}")
 print("-" * 100)
@@ -455,3 +364,6 @@ with open('Pij.csv', 'w', newline='') as f:
     writer.writerow([''] + cols)
     for i in rows:
         writer.writerow([i] + [Pij.get((i, j), '') for j in cols])
+
+# Call after model.optimize()
+plot_gantt(aircraft, gates, x, arrival, departure)   
