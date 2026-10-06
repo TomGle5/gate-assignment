@@ -1,4 +1,6 @@
-# Variable from Excel cell C30
+"""Small distance matrix used by the two-aircraft validation case."""
+
+# Additional distance from the airport entrance to the remote apron.
 d = 2000
 
 # Distance matrix

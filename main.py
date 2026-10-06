@@ -1,11 +1,12 @@
-from gurobipy import *
-import random
 import itertools
-from DistanceMatrix import dist
 import math
+import random
+import csv
+from gurobipy import *
+from DistanceMatrix import dist
 
 #random.seed(42)
-n_aircraft = 50
+n_aircraft = 30
 aircraft = list(range(1, n_aircraft + 1))
 
 # SCHEDULES ======================================================================================
@@ -66,6 +67,7 @@ gates, gate_zone, gate_size = multidict(gate_data)
 #        else (random.randint(300, 500) if (g1 == 0 or g2 == 0) else random.randint(50, 300))
 #        for g1 in gates for g2 in gates}
 
+# distances between gates and E
 D0g = {g: dist["E"][g] for g in gates}
 Dg0 = {g: dist[g]["E"] for g in gates}
 Dgg = {(g1, g2): dist[g1][g2] for g1 in gates for g2 in gates}
@@ -76,19 +78,19 @@ Dgg = {(g1, g2): dist[g1][g2] for g1 in gates for g2 in gates}
 # Pij = {(i, j): random.randint(0, 50) for i in aircraft for j in aircraft if i != j}  # i -> j transfers
 
 # Passenger flows
-mct = 40
-P_arr = {}
-cnx_pct_plan = {}
-cnx_pax_arr_plan = {}
-Pi0 = {}
-cnx_pct_actual = {}
+mct = 40  # minimum connecting time
+P_arr = {}  # passengers arriving on each ac
+cnx_pct_plan = {}  # 'planned' pct of arriving pax cnx to another flt
+cnx_pax_arr_plan = {}  # 'planned' no of arr pax cnx to another flt
+Pi0 = {}  # no of pax ending journey at the airport
+cnx_pct_actual = {}  # actual pct of arriving pax cnx to another flt
 
-A_sorted = sorted(aircraft, key=lambda i: arrival[i])
+A_sorted = sorted(aircraft, key=lambda i: arrival[i])  # ac sorted by arrival time
 
-valid_connections = {
+valid_connections = {  # flts that a pax can connect onto (departs after arriving flt + mct)
     i: [j for j in aircraft if departure[j] >= (arrival[i] + mct)]
     for i in aircraft
-}
+} 
 
 for i in aircraft:
     if aircraft_size[i] == ['wide']:
@@ -107,6 +109,8 @@ Pij = {(i, j): 0 for i in aircraft for j in aircraft}
 def min_origin(j):
     return 100 if aircraft_size[j] == ['wide'] else 50
 
+# Allocate planned connecting passengers to feasible departures. Earlier
+# departures receive greater weight, while aircraft capacity is respected.
 for i in A_sorted:
     candidates = [j for j in valid_connections[i] if remaining_capacity[j] > min_origin(j)]
 
@@ -144,8 +148,6 @@ for i in aircraft:
         P0i[i] = random.randint(100, 300 - cnx_pax_dep[i])
     elif aircraft_size[i] == ['narrow']:
         P0i[i] = random.randint(50, 180 - cnx_pax_dep[i])
-
-
 
 # Create G_i
 G_i = {i: [] for i in aircraft}
@@ -412,8 +414,6 @@ def plot_gantt(A, G, x, arrival, departure):
     plt.show()
 
 # Call after model.optimize()
-plot_gantt(aircraft, gates, x, arrival, departure)   
-
 for i in aircraft:
     print(i, aircraft_size[i], aircraft_zone[i])
 
@@ -443,8 +443,6 @@ print("-" * 100)
 for i in aircraft:
     print(f"{i:<3} {P0i[i]:<10} {cnx_pax_dep[i]:<20} {P0i[i] + cnx_pax_dep[i]}")
 
-import csv
-
 # Get sorted unique row (i) and column (j) values
 rows = sorted(set(i for i, j in Pij))
 cols = sorted(set(j for i, j in Pij))
@@ -455,3 +453,5 @@ with open('Pij.csv', 'w', newline='') as f:
     writer.writerow([''] + cols)
     for i in rows:
         writer.writerow([i] + [Pij.get((i, j), '') for j in cols])
+
+plot_gantt(aircraft, gates, x, arrival, departure)

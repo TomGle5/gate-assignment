@@ -12,6 +12,9 @@ Decision variables:
 
 Objective: minimize total passenger walking distance
     (outbound + inbound + transfer passengers)
+
+This standalone script uses random input data and reports one optimized
+assignment together with its objective value.
 """
 
 import itertools

@@ -1,3 +1,5 @@
+"""Validate the gate-assignment model with randomly generated passenger flows."""
+
 from gurobipy import *
 import random
 import itertools

@@ -1,3 +1,5 @@
+"""Experiment with a nonlinear transfer-distance objective for gate assignment."""
+
 from gurobipy import *
 import numpy as np
 import random
