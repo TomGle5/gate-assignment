@@ -2,11 +2,16 @@ import itertools
 import math
 import random
 import csv
+import sys
 from gurobipy import *
 from DistanceMatrix import dist
 
 #random.seed(42)
-n_aircraft = 30
+n_aircraft = int(sys.argv[1]) if len(sys.argv) > 1 else 100
+seed = int(sys.argv[2]) if len(sys.argv) > 2 else 42
+
+random.seed(seed)
+
 aircraft = list(range(1, n_aircraft + 1))
 
 # SCHEDULES ======================================================================================
@@ -17,7 +22,12 @@ aircraft = list(range(1, n_aircraft + 1))
 # aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
 # aircraft_zone = {i: random.choice(('schengen', 'non-schengen')) for i in aircraft}
 # # Schedules (random) ===========================================================================
-arrival = {i: random.randint(0, 60) for i in aircraft}
+
+#this decedides the window of analysis [min] -> Lets assume 06:00 - 23:00 window
+analysis_period = 1020
+arrival = {i: random.randint(0, analysis_period) for i in aircraft}
+
+
 #turnaround = {i: random.randint(30, 60) for i in aircraft}
 aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
 turnaround = {i: (random.randint(60, 120)
@@ -248,6 +258,29 @@ model.setObjective(outbound + inbound + transfer, GRB.MINIMIZE)
 # ----------------------------------------------------------------------
 model.optimize()
 
+#added for senitivity abnalysis
+if model.SolCount > 0:
+
+    total_passengers = (
+        sum(P0i.values())
+        + sum(Pi0.values())
+        + sum(Pij.values())
+    )
+
+    objective_per_passenger = (
+        model.ObjVal / total_passengers
+        if total_passengers > 0 else 0
+    )
+
+    print(
+        f"RESULT,{n_aircraft},{objective_per_passenger}"
+    )
+
+else:
+    print(f"NO_SOLUTION,{n_aircraft}")
+
+
+
 print("\nSchedules:")
 for i in aircraft:
     print(f"  Aircraft {i}: A_i={arrival[i]:3d}  D_i={departure[i]:3d}")
@@ -417,7 +450,7 @@ def plot_gantt(A, G, x, arrival, departure):
               loc='upper left', bbox_to_anchor=(1.01, 1))
 
     plt.tight_layout(rect=[0, 0, 0.85, 1])
-    plt.show()
+    #plt.show()
 
 # Call after model.optimize()
 for i in aircraft:
