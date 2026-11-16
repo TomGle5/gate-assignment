@@ -1,192 +1,299 @@
-"""
-Sensitivity.py
-
-Runs main.py for aircraft counts 30 through 130 (inclusive), collects the
-objective value per passenger movement, and saves:
-    - Sensitivity_Results.csv
-    - Sensitivity_Analysis.png
-
-Run this file from your Python IDE (e.g. Spyder, PyCharm, VS Code, IDLE).
-No terminal commands are required.
-
-IMPORTANT:
-main.py must:
-  1. Read the aircraft count from sys.argv[1].
-  2. Read the random seed from sys.argv[2] (optional, but recommended).
-  3. Print one machine-readable line after optimisation:
-       RESULT,n_aircraft,objective_per_passenger
-     Example:
-       RESULT,30,1245.6789
-
-See the instructions accompanying this file for the small main.py changes.
-"""
 
 import subprocess
 import sys
 from pathlib import Path
-
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 
-# ---------------------------------------------------------------------
+# ============================================================
 # SETTINGS
-# ---------------------------------------------------------------------
+# ============================================================
 
-# Assumes Sensitivity.py and main.py are in the same folder.
 PROJECT_FOLDER = Path(__file__).resolve().parent
 MAIN_FILE = PROJECT_FOLDER / "main.py"
 
 FIRST_AIRCRAFT_COUNT = 50
-LAST_AIRCRAFT_COUNT = 100
-RANDOM_SEED = 42
+LAST_AIRCRAFT_COUNT = 150
+AIRCRAFT_STEP = 10
 
-RESULTS_FILE = PROJECT_FOLDER / "Sensitivity_Results.csv"
-GRAPH_FILE = PROJECT_FOLDER / "Sensitivity_Analysis.png"
+NUMBER_OF_SEEDS = 10
+FIRST_SEED = 42
+
+# Only include solutions meeting this relative gap
+MAX_ACCEPTED_GAP = 0.01
+
+RAW_RESULTS_FILE = PROJECT_FOLDER / "Sensitivity_Raw.csv"
+SUMMARY_FILE = PROJECT_FOLDER / "Sensitivity_Summary.csv"
+
+WALKING_GRAPH = PROJECT_FOLDER / "Sensitivity_Walking.png"
+APRON_GRAPH = PROJECT_FOLDER / "Sensitivity_Apron.png"
+RUNTIME_GRAPH = PROJECT_FOLDER / "Sensitivity_Runtime.png"
 
 
-# ---------------------------------------------------------------------
+# ============================================================
 # RUN ONE SCENARIO
-# ---------------------------------------------------------------------
+# ============================================================
 
-def run_scenario(number_of_aircraft, seed=RANDOM_SEED):
-    """
-    Runs main.py as a separate Python process and returns the objective
-    value per passenger movement.
+def run_scenario(number_of_aircraft, seed):
 
-    main.py must print:
-        RESULT,n_aircraft,objective_per_passenger
+    command = [sys.executable, str(MAIN_FILE), str(number_of_aircraft), str(seed)]
 
-    Returns None if the model has no feasible solution or no result line
-    was printed.
-    """
+    # Generate Gantt chart only for the first seed of the largest aircraft scenario
+    if (number_of_aircraft == LAST_AIRCRAFT_COUNT and seed == FIRST_SEED):
+        command.append("--gantt")
 
-    command = [
-        sys.executable,
-        str(MAIN_FILE),
-        str(number_of_aircraft),
-        str(seed),
-    ]
-
-    completed = subprocess.run(
-        command,
-        cwd=PROJECT_FOLDER,
-        capture_output=True,
-        text=True
-    )
+    completed = subprocess.run(command, cwd=PROJECT_FOLDER, capture_output=True, text=True)
 
     if completed.returncode != 0:
-        print(f"ERROR: main.py failed for {number_of_aircraft} aircraft.")
-        print(completed.stderr)
+        print(f"ERROR: {number_of_aircraft} aircraft, seed {seed}")
+        
+        print(completed.stderr[-2000:])
+
         return None
 
-    # Look for the machine-readable RESULT line in main.py's output.
     for line in completed.stdout.splitlines():
+
         line = line.strip()
 
         if line.startswith("RESULT,"):
+
             fields = line.split(",")
 
-            if len(fields) != 3:
-                raise ValueError(
-                    "Expected output format "
-                    "'RESULT,n_aircraft,objective_per_passenger', "
-                    f"but received: {line}"
-                )
+            if len(fields) != 7:
+                raise ValueError(f"Unexpected result format: {line}")
 
             reported_aircraft = int(fields[1])
-            objective_per_passenger = float(fields[2])
 
             if reported_aircraft != number_of_aircraft:
-                raise ValueError(
-                    f"Requested {number_of_aircraft} aircraft, but "
-                    f"main.py reported {reported_aircraft}."
-                )
+                raise ValueError("Aircraft count mismatch")
 
-            return objective_per_passenger
+            return {
+                "Number of flights": number_of_aircraft,
+                "Seed": seed,
+                "Walking distance": float(fields[2]),
+                "Apron usage": float(fields[3]),
+                "Runtime": float(fields[4]),
+                "MIP Gap": float(fields[5]),
+                "Solver status": int(fields[6])}
 
         if line.startswith("NO_SOLUTION,"):
-            print(f"No feasible solution for {number_of_aircraft} aircraft.")
+            print(f"No solution: {number_of_aircraft} aircraft, seed {seed}")
+            
             return None
 
-    print(
-        f"WARNING: No RESULT line found for {number_of_aircraft} aircraft. "
-        "Check the required main.py output format."
-    )
-    print("main.py output:")
-    print(completed.stdout)
+    print(f"WARNING: No result found for {number_of_aircraft}, seed {seed}")
+    
+    print(completed.stdout[-2000:])
+
     return None
 
 
-# ---------------------------------------------------------------------
-# MAIN SENSITIVITY ANALYSIS
-# ---------------------------------------------------------------------
+# ============================================================
+# PLOTTING
+# ============================================================
 
-def main():
-    if not MAIN_FILE.exists():
-        raise FileNotFoundError(
-            f"Could not find main.py in: {PROJECT_FOLDER}\n"
-            "Place Sensitivity.py in the same folder as main.py."
-        )
 
-    aircraft_counts = range(
-        FIRST_AIRCRAFT_COUNT,
-        LAST_AIRCRAFT_COUNT + 1
-    )
 
-    results = []
+def plot_sensitivity(data, raw_data, mean_column, min_column, max_column, raw_column, ylabel, title, filename):
 
-    total_runs = LAST_AIRCRAFT_COUNT - FIRST_AIRCRAFT_COUNT + 1
+    x = data["Number of flights"].to_numpy()
+    mean = data[mean_column].to_numpy()
+    lower = data[min_column].to_numpy()
+    upper = data[max_column].to_numpy()
 
-    for run_number, number_of_aircraft in enumerate(aircraft_counts, start=1):
-        print(
-            f"Run {run_number}/{total_runs}: "
-            f"{number_of_aircraft} aircraft"
-        )
+    plt.figure(figsize=(5.5, 5.5))
 
-        value = run_scenario(number_of_aircraft)
-
-        if value is not None:
-            results.append({
-                "Number of flights": number_of_aircraft,
-                "Objective value per passenger": value
-            })
-
-    if not results:
-        print(
-            "\nNo results were collected. Check that main.py accepts the "
-            "aircraft-count argument and prints the required RESULT line."
-        )
-        return
-
-    data = pd.DataFrame(results)
-
-    # Save the numerical results.
-    data.to_csv(RESULTS_FILE, index=False)
-
-    # Plot objective value per passenger against number of flights.
-    plt.figure(figsize=(11, 6))
+    # Mean value
     plt.plot(
-        data["Number of flights"],
-        data["Objective value per passenger"],
-        marker=".",
-        markersize=4,
-        linewidth=1.5
-    )
+        x,
+        mean,
+        marker="o",
+        markersize=5,
+        linewidth=2,
+        color="tab:blue",
+        label="Mean")
+
+    # Shaded minimum-maximum range
+    plt.fill_between(
+        x,
+        lower,
+        upper,
+        color="tab:blue",
+        alpha=0.2,
+        label="Minimum–maximum range")
+
+    # Individual results for all 10 seeds
+    plt.scatter(
+        raw_data["Number of flights"],
+        raw_data[raw_column],
+        color="tab:blue",
+        s=15,
+        alpha=0.5,
+        label="Individual seeds",
+        zorder=3)
 
     plt.xlabel("Number of flights")
-    plt.ylabel("Objective function value per passenger")
-    plt.title("Sensitivity Analysis: Objective Value per Passenger")
-    plt.xlim(FIRST_AIRCRAFT_COUNT, LAST_AIRCRAFT_COUNT)
+    plt.ylabel(ylabel)
+    plt.title(title)
+
+    plt.xlim(FIRST_AIRCRAFT_COUNT, LAST_AIRCRAFT_COUNT + 10)
+    #plt.ylim(bottom=0)
+
     plt.grid(True, alpha=0.3)
+    plt.legend()
+
+    plt.gca().set_box_aspect(1)
     plt.tight_layout()
 
-    plt.savefig(GRAPH_FILE, dpi=300)
-    plt.show()
+    plt.savefig(filename, dpi=300)
+    plt.close()
+
+
+# ============================================================
+# MAIN SENSITIVITY ANALYSIS
+# ============================================================
+
+def main():
+
+    if not MAIN_FILE.exists():
+        raise FileNotFoundError(f"Could not find main.py: {MAIN_FILE}")
+
+    aircraft_counts = range(FIRST_AIRCRAFT_COUNT, LAST_AIRCRAFT_COUNT + 1, AIRCRAFT_STEP)
+
+    seeds = range(FIRST_SEED, FIRST_SEED + NUMBER_OF_SEEDS)
+
+    total_runs = len(aircraft_counts) * NUMBER_OF_SEEDS
+
+    results = []
+    run_number = 0
+
+    for number_of_aircraft in aircraft_counts:
+
+        for seed in seeds:
+
+            run_number += 1
+
+            print(f"Run {run_number}/{total_runs}: {number_of_aircraft} aircraft, seed {seed}", flush=True)
+
+            result = run_scenario(number_of_aircraft, seed)
+
+            if result is not None:
+                results.append(result)
+
+    if not results:
+        print("No results collected.")
+        return
+
+    # --------------------------------------------------------
+    # SAVE ALL INDIVIDUAL RUNS
+    # --------------------------------------------------------
+
+    raw_data = pd.DataFrame(results)
+
+    raw_data.to_csv(RAW_RESULTS_FILE, index=False)
+
+    # Only accept solutions with sufficiently small MIP gap
+    accepted_data = raw_data[raw_data["MIP Gap"] <= MAX_ACCEPTED_GAP].copy()
+
+    if accepted_data.empty:
+        print("No solutions met the MIP gap criterion.")
+        return
+
+    # --------------------------------------------------------
+    # CALCULATE STATISTICS
+    # --------------------------------------------------------
+
+    summary = (accepted_data.groupby("Number of flights").agg(
+        Mean_Walking=("Walking distance", "mean"),
+        #Std_Walking=("Walking distance", "std"),
+        Min_Walking=("Walking distance", "min"),
+        Max_Walking=("Walking distance", "max"),
+
+        Mean_Apron=("Apron usage", "mean"),
+        #Std_Apron=("Apron usage", "std"),
+        Min_Apron=("Apron usage", "min"),
+        Max_Apron=("Apron usage", "max"),
+
+        Mean_Runtime=("Runtime", "mean"),
+        #Std_Runtime=("Runtime", "std"),
+        Min_Runtime=("Runtime", "min"),
+        Max_Runtime=("Runtime", "max"),
+
+        Number_of_Runs=("Seed", "count")).reset_index())
+
+    summary.to_csv(SUMMARY_FILE,index=False)
+
+    # --------------------------------------------------------
+    # WALKING DISTANCE + Axis Labels
+    # --------------------------------------------------------
+
+    plot_sensitivity(
+        summary,
+        accepted_data,
+        "Mean_Walking",
+        "Min_Walking",
+        "Max_Walking",
+        "Walking distance",
+        "Walking distance per passenger [m]",
+        "Objective Function for Number of Flights",
+        WALKING_GRAPH)
+
+    # --------------------------------------------------------
+    # Apron % + Axis Labels
+    # --------------------------------------------------------
+
+    plot_sensitivity(
+        summary,
+        accepted_data,
+        "Mean_Apron",
+        "Min_Apron",
+        "Max_Apron",
+        "Apron usage",
+        "Apron Fraction [%]",
+        "Apron Allocation for Number of Flights",
+        APRON_GRAPH)
+
+    # --------------------------------------------------------
+    # Runtime + Axis Labels
+    # --------------------------------------------------------
+
+    plot_sensitivity(
+        summary,
+        accepted_data,
+        "Mean_Runtime",
+        "Min_Runtime",
+        "Max_Runtime",
+        "Runtime",
+        "Solver Runtime [s]",
+        "Computational Effort for Number of Flights",
+        RUNTIME_GRAPH)
+
+    # --------------------------------------------------------
+    # PRINT RESULTS
+    # --------------------------------------------------------
 
     print("\nSensitivity analysis completed.")
-    print(f"Results saved to: {RESULTS_FILE}")
-    print(f"Graph saved to:   {GRAPH_FILE}")
+
+    print("\nSummary statistics:")
+    print(summary.to_string(index=False))
+
+    print("\nFiles saved:")
+    print(RAW_RESULTS_FILE)
+    print(SUMMARY_FILE)
+    print(WALKING_GRAPH)
+    print(APRON_GRAPH)
+    print(RUNTIME_GRAPH)
+
+    expected = NUMBER_OF_SEEDS
+
+    incomplete = summary[summary["Number_of_Runs"] < expected]
+
+    if not incomplete.empty:
+        print("\nWARNING: Some aircraft counts have fewer accepted runs than requested.")
+        
+        print(incomplete[["Number of flights", "Number_of_Runs"]].to_string(index=False))
 
 
 if __name__ == "__main__":

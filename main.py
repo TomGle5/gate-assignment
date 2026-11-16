@@ -10,6 +10,10 @@ from DistanceMatrix import dist
 n_aircraft = int(sys.argv[1]) if len(sys.argv) > 1 else 100
 seed = int(sys.argv[2]) if len(sys.argv) > 2 else 42
 
+#printing the gant chart
+GENERATE_GANTT = "--gantt" in sys.argv
+
+
 random.seed(seed)
 
 aircraft = list(range(1, n_aircraft + 1))
@@ -23,21 +27,48 @@ aircraft = list(range(1, n_aircraft + 1))
 # aircraft_zone = {i: random.choice(('schengen', 'non-schengen')) for i in aircraft}
 # # Schedules (random) ===========================================================================
 
-#this decedides the window of analysis [min] -> Lets assume 06:00 - 23:00 window
+
+# ============================================================
+# SCHEDULE GENERATION - CONTROLLED RANDOMIZATION
+# ============================================================
+
 analysis_period = 1020
-arrival = {i: random.randint(0, analysis_period) for i in aircraft}
 
+arrival = {}
+aircraft_size = {}
+turnaround = {}
+departure = {}
+aircraft_zone = {}
 
-#turnaround = {i: random.randint(30, 60) for i in aircraft}
-aircraft_size = {i: random.choices(('wide', 'narrow'), (0.3, 0.7)) for i in aircraft}
-turnaround = {i: (random.randint(60, 120)
-    if aircraft_size[i] == ['wide']
-    else random.randint(30, 60))
-    for i in aircraft
-}
+for i in aircraft:
 
-departure = {i: arrival[i] + turnaround[i] for i in aircraft}
-aircraft_zone = {i: random.choice(('schengen', 'non-schengen')) for i in aircraft}
+    # Independent random generator for each aircraft
+    rng = random.Random(seed * 100000 + i)
+
+    # Arrival time
+    arrival[i] = rng.randint(0, analysis_period)
+
+    # Aircraft size
+    aircraft_size[i] = rng.choices(
+        ("wide", "narrow"),
+        weights=(0.3, 0.7),
+        k=1
+    )
+
+    # Turnaround time
+    if aircraft_size[i] == ["wide"]:
+        turnaround[i] = rng.randint(60, 120)
+    else:
+        turnaround[i] = rng.randint(30, 60)
+
+    # Departure time
+    departure[i] = arrival[i] + turnaround[i]
+
+    # Schengen or non-Schengen
+    aircraft_zone[i] = rng.choice(
+        ("schengen", "non-schengen")
+    )
+
 remaining_capacity = {
     i: 300 if aircraft_size[i] == ['wide'] else 180
     for i in aircraft
@@ -104,29 +135,31 @@ cnx_pct_actual = {}  # actual pct of arriving pax cnx to another flt
 A_sorted = sorted(aircraft, key=lambda i: arrival[i])  # ac sorted by arrival time
 
 valid_connections = {  # flts that a pax can connect onto (departs after arriving flt + mct)
-    i: [j for j in aircraft if departure[j] >= (arrival[i] + mct)]
+    i: [j for j in aircraft if j != i and departure[j] >= (arrival[i] + mct)]
     for i in aircraft
 } 
 
 for i in aircraft:
+    #separate random genrator for passenger attributes
+    rng = random.Random(seed * 100000 + i + 10000000)
     if aircraft_size[i] == ['wide']:
-        P_arr[i] = random.randint(100, 300)
-        cnx_pct_plan[i] = random.randint(40, 80)/100
-        cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
-        Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
-    elif aircraft_size[i] == ['narrow']:
-        P_arr[i] = random.randint(50, 180)
-        cnx_pct_plan[i] = random.randint(20, 70)/100
-        cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
-        Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
+        P_arr[i] = rng.randint(100, 300)
+        cnx_pct_plan[i] = rng.randint(40, 80)/100
 
+    else: 
+        P_arr[i] = rng.randint(50, 180)
+        cnx_pct_plan[i] = rng.randint(20, 70)/100
+
+    cnx_pax_arr_plan[i] = math.floor(P_arr[i] * cnx_pct_plan[i])
+    Pi0[i] = P_arr[i] - cnx_pax_arr_plan[i]
+   
 Pij = {(i, j): 0 for i in aircraft for j in aircraft}
 
 def min_origin(j):
     return 100 if aircraft_size[j] == ['wide'] else 50
 
 # Allocate planned connecting passengers to feasible departures. Earlier
-# departures receive greater weight, while aircraft capacity is respected.
+# departures receive great er weight, while aircraft capacity is respected.
 for i in A_sorted:
     candidates = [j for j in valid_connections[i] if remaining_capacity[j] > min_origin(j)]
 
@@ -256,43 +289,58 @@ model.setObjective(outbound + inbound + transfer, GRB.MINIMIZE)
 # ----------------------------------------------------------------------
 # 8. Solve and report
 # ----------------------------------------------------------------------
+model.Params.OutputFlag = 0
+
+# Optional: set limits if some scenarios become expensive.
+# model.Params.TimeLimit = 300
+# model.Params.MIPGap = 0.01
+
 model.optimize()
 
-#added for senitivity abnalysis
 if model.SolCount > 0:
 
+    # Total passenger movements
     total_passengers = (
         sum(P0i.values())
         + sum(Pi0.values())
         + sum(Pij.values())
     )
 
+    # Average walking distance per passenger movement
     objective_per_passenger = (
         model.ObjVal / total_passengers
         if total_passengers > 0 else 0
     )
 
+    # Number of aircraft assigned to the remote apron
+    apron_aircraft = sum(
+        1 for i in aircraft
+        if x[i, "R"].X > 0.5
+    )
+
+    apron_percentage = (
+        100 * apron_aircraft / n_aircraft
+    )
+
+    # Solver statistics
+    runtime = model.Runtime
+    mip_gap = model.MIPGap
+    status = model.Status
+
+    # Machine-readable output for Sensitivity.py
     print(
-        f"RESULT,{n_aircraft},{objective_per_passenger}"
+        f"RESULT,{n_aircraft},"
+        f"{objective_per_passenger},"
+        f"{apron_percentage},"
+        f"{runtime},"
+        f"{mip_gap},"
+        f"{status}"
     )
 
 else:
     print(f"NO_SOLUTION,{n_aircraft}")
+    sys.exit(0)
 
-
-
-print("\nSchedules:")
-for i in aircraft:
-    print(f"  Aircraft {i}: A_i={arrival[i]:3d}  D_i={departure[i]:3d}")
-
-print("\nGate assignments:")
-for i in aircraft:
-    for g in gates:
-        if x[i, g].X > 0.5:
-            label = "APRON" if g == "R" else f"Gate {g}"
-            print(f"  Aircraft {i} -> {label}")
-
-print(f"\nTotal objective (passenger walking distance): {model.ObjVal:.1f}")
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -450,6 +498,9 @@ def plot_gantt(A, G, x, arrival, departure):
               loc='upper left', bbox_to_anchor=(1.01, 1))
 
     plt.tight_layout(rect=[0, 0, 0.85, 1])
+    plt.savefig(f"Gantt_{n_aircraft}_aircraft_seed_{seed}.png",dpi=300,bbox_inches="tight")
+
+    plt.close()
     #plt.show()
 
 # Call after model.optimize()
@@ -493,4 +544,5 @@ with open('Pij.csv', 'w', newline='') as f:
     for i in rows:
         writer.writerow([i] + [Pij.get((i, j), '') for j in cols])
 
-plot_gantt(aircraft, gates, x, arrival, departure)
+if GENERATE_GANTT:
+    plot_gantt(aircraft, gates, x, arrival, departure)
